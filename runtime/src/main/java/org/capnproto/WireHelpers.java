@@ -1312,4 +1312,38 @@ final class WireHelpers {
         return new Data.Reader(resolved.segment.buffer, resolved.ptr, size);
     }
 
+    static void setCapabilityPointer(SegmentBuilder segment, CapTableBuilder capTable, int refOffset, ClientHook cap) {
+        long ref = segment.get(refOffset);
+
+        if (!WirePointer.isNull(ref)) {
+            zeroObject(segment, refOffset);
+        }
+
+        if (cap == null) {
+            // TODO check zeroMemory behaviour
+            zeroPointerAndFars(segment, refOffset);
+        }
+        else {
+            WirePointer.setCap(segment.buffer, refOffset, capTable.injectCap(cap));
+        }
+    }
+
+    static ClientHook readCapabilityPointer(SegmentReader segment, CapTableReader capTable, int refOffset, int maxValue) {
+        long ref = segment.get(refOffset);
+
+        if (WirePointer.isNull(ref)) {
+            return Capability.newNullCap();
+        }
+
+        if (WirePointer.kind(ref) != WirePointer.OTHER) {
+            return Capability.newBrokenCap("Calling capability extracted from a non-capability pointer.");
+        }
+
+        var cap = capTable.extractCap(WirePointer.upper32Bits(ref));
+        if (cap == null) {
+            return Capability.newBrokenCap("Calling invalid capability pointer.");
+        }
+        return cap;
+    }
+
 }
