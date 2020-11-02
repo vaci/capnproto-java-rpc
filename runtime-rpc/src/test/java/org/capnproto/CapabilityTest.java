@@ -209,7 +209,13 @@ public final class CapabilityTest {
 
     @org.junit.Test
     public void testGenerics() {
-        var factory = Test.TestGenerics.newFactory(Test.TestAllTypes.factory, AnyPointer.factory);
+        var factory = org.capnproto.test.Test.TestGenerics.Interface.newFactory(
+                org.capnproto.test.Test.TestAllTypes.factory, AnyPointer.factory, AnyPointer.factory);
+        var client = factory.newClient(null);
+        var request = client.callRequest();
+        var params = request.getParams();
+        params.setBaz(Text.factory, "hello");
+        var inner = request.getParams().initInnerBound().initFoo();
     }
 
     @org.junit.Test
