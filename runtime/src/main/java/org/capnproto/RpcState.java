@@ -41,7 +41,7 @@ final class RpcState<VatId> {
 
         void dispose() {
             var ref = questions.find(this.id);
-            if (ref != null) {
+            if (ref == null) {
                 assert false: "Question ID no longer on table?";
                 return;
             }
@@ -547,9 +547,19 @@ final class RpcState<VatId> {
         response.setFds(List.of());
 
         answer.resultExports = writeDescriptors(caps, payload, fds);
-        answer.pipeline = ops -> ops.length == 0
-                ? capHook
-                : Capability.newBrokenCap("Invalid pipeline transform.");
+        answer.pipeline = new PipelineHook() {
+            @Override
+            public ClientHook getPipelinedCap(PipelineOp[] ops) {
+                return ops.length == 0
+                        ? capHook
+                        : Capability.newBrokenCap("Invalid pipeline transform.");
+            }
+
+            @Override
+            public void close() throws Exception {
+                capHook.close();
+            }
+        };
 
         response.send();
 
@@ -970,7 +980,11 @@ final class RpcState<VatId> {
     }
 
     void releaseExports(int[] exports) {
-        for (var exportId : exports) {
+        if (exports == null) {
+            return;
+        }
+
+        for (var exportId: exports) {
             this.releaseExport(exportId, 1);
         }
     }
@@ -1508,6 +1522,12 @@ final class RpcState<VatId> {
             });
             return hook;
         }
+
+        @Override
+        public void close() throws Exception {
+            this.resolveSelf.cancel(false);
+            this.question.disposer.dispose();
+        }
     }
 
     abstract class RpcClient implements ClientHook {
@@ -1716,6 +1736,11 @@ final class RpcState<VatId> {
         public CompletableFuture<ClientHook> whenMoreResolved() {
             return null;
         }
+
+        @Override
+        public void close() throws Exception {
+            this.imp.dispose();
+        }
     }
 
     private void cleanupImports() {
@@ -1853,6 +1878,15 @@ final class RpcState<VatId> {
         public VoidPromiseAndPipeline call(long interfaceId, short methodId, CallContextHook context) {
             return null;
         }
+
+        @Override
+        public void close() throws Exception {
+            this.promise.cancel(false);
+            var cap = this.getInnermostClient();
+            if (cap != null) {
+                cap.close();
+            }
+        }
     }
 
     private class PipelineClient extends RpcClient {
@@ -1889,6 +1923,12 @@ final class RpcState<VatId> {
             builder.setQuestionId(question.getId());
             PipelineOp.FromPipelineOps(ops, builder);
             return null;
+        }
+
+        @Override
+        public void close() throws Exception {
+            this.whenResolved().cancel(false);
+            this.question.disposer.dispose();
         }
     }
 }

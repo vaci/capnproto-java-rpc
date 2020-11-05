@@ -361,16 +361,17 @@ public class RpcTest {
     @org.junit.Test
     public void testRelease() {
         var context = new TestContext(bootstrapFactory);
-        var client = new Test.TestMoreStuff.Client(context.connect(Test.TestSturdyRefObjectId.Tag.TEST_MORE_STUFF));
-
-        var handle1 = client.getHandleRequest().send().join().getHandle();
-        var promise = client.getHandleRequest().send();
-        var handle2 = promise.join().getHandle();
-
-        handle1 = null;
-        handle2 = null;
-
-
+        try (var client = new Test.TestMoreStuff.Client(context.connect(Test.TestSturdyRefObjectId.Tag.TEST_MORE_STUFF))) {
+            try (var handle1 = client.getHandleRequest().send().join().getHandle()) {
+                try (var promise = client.getHandleRequest().send()) {
+                    try (var handle2 = promise.join().getHandle()) {
+                    }
+                }
+            }
+        }
+        catch (Exception exc) {
+            Assert.fail(exc.getMessage());
+        }
     }
 }
 

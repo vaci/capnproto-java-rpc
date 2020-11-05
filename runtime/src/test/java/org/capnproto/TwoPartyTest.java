@@ -203,4 +203,18 @@ public class TwoPartyTest {
         var cap2 = results.getResult2();
         Assert.assertFalse(cap2.isNull());
     }
+
+    @Test
+    public void testAutoclose() throws Exception {
+        var capServer = new TestCap0Impl();
+        var rpcSystem = new RpcSystem<>(this.serverNetwork, capServer);
+        try (var demoClient = new Demo.TestCap0.Client(this.client.bootstrap())) {
+            var request = demoClient.testMethod1Request();
+            try (var response = request.send()) {
+                response.get();
+                Assert.assertTrue(response.isDone());
+            }
+        }
+        this.clientSocket.shutdownOutput();
+    }
 }

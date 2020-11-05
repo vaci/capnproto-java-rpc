@@ -22,6 +22,7 @@ public interface Request<Params> {
         final MessageBuilder message = new MessageBuilder();
 
         var hook = new RequestHook() {
+
             @Override
             public RemotePromise<AnyPointer.Reader> send() {
                 return new RemotePromise<>(CompletableFuture.failedFuture(exc),
@@ -41,6 +42,7 @@ public interface Request<Params> {
 
         var root = message.getRoot(AnyPointer.factory);
         return new Request<>() {
+
             @Override
             public FromPointerBuilder<Params> getParamsFactory() {
                 return paramsFactory;

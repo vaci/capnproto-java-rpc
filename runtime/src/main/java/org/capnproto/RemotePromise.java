@@ -3,7 +3,8 @@ package org.capnproto;
 import java.util.concurrent.CompletableFuture;
 
 public class RemotePromise<Results>
-        extends CompletableFutureWrapper<Results> {
+        extends CompletableFutureWrapper<Results>
+        implements AutoCloseable {
 
     private final CompletableFuture<Response<Results>> response;
     private final AnyPointer.Pipeline pipeline;
@@ -38,6 +39,12 @@ public class RemotePromise<Results>
         var promise = typeless.response.thenApply(
                 response -> Response.fromTypeless(resultsFactory, response));
         return new RemotePromise<>(promise, typeless.pipeline);
+    }
+
+    @Override
+    public void close() throws Exception {
+        this.response.cancel(false);
+        this.pipeline.hook.close();
     }
 }
 

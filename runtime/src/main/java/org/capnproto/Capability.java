@@ -97,7 +97,7 @@ public final class Capability {
         }
     }
 
-    public static class Client implements ClientBase {
+    public static class Client implements ClientBase, AutoCloseable {
 
         private final ClientHook hook;
 
@@ -132,6 +132,11 @@ public final class Capability {
 
         private static ClientHook makeLocalClient(Server server) {
             return server.makeLocalClient();
+        }
+
+        @Override
+        public void close() throws Exception {
+            this.hook.close();
         }
     }
 
@@ -248,6 +253,11 @@ public final class Capability {
                 }
                 return null;
             }
+
+            @Override
+            public void close() throws Exception {
+                this.whenResolved().cancel(false);
+            }
         }
 
         /**
@@ -346,8 +356,8 @@ public final class Capability {
         @Override
         public RemotePromise<AnyPointer.Reader> send() {
             var cancelPaf = new CompletableFuture<java.lang.Void>();
-            var context = new LocalCallContext(message, client, cancelPaf);
-            var promiseAndPipeline = client.call(interfaceId, methodId, context);
+            var context = new LocalCallContext(message, this.client, cancelPaf);
+            var promiseAndPipeline = this.client.call(interfaceId, methodId, context);
             var promise = promiseAndPipeline.promise.thenApply(x -> {
                 context.getResults(); // force allocation
                 return context.response;
@@ -382,6 +392,10 @@ public final class Capability {
         @Override
         public final ClientHook getPipelinedCap(PipelineOp[] ops) {
             return this.results.getPipelinedCap(ops);
+        }
+
+        @Override
+        public void close() throws Exception {
         }
     }
 
@@ -472,6 +486,8 @@ public final class Capability {
 
     static private ClientHook newBrokenClient(Throwable exc, boolean resolved, Object brand) {
         return new ClientHook() {
+
+
             @Override
             public AnyPointer.Request newCall(long interfaceId, short methodId) {
                 var broken = Request.newBrokenRequest(AnyPointer.factory, exc);
@@ -492,6 +508,9 @@ public final class Capability {
             public Object getBrand() {
                 return brand;
             }
+
+            @Override
+            public void close() {}
         };
     }
 
@@ -523,6 +542,15 @@ public final class Capability {
                     ? redirect.getPipelinedCap(ops)
                     : new QueuedClient(this.promise.thenApply(
                         pipeline -> pipeline.getPipelinedCap(ops)));
+        }
+
+        @Override
+        public void close() throws Exception {
+            this.selfResolutionOp.cancel(false);
+            this.promise.cancel(false);
+            if (this.redirect != null) {
+                //this.redirect.close();
+            }
         }
     }
 
@@ -571,6 +599,14 @@ public final class Capability {
         @Override
         public CompletableFuture<ClientHook> whenMoreResolved() {
             return this.promiseForClientResolution.copy();
+        }
+
+        @Override
+        public void close() throws Exception {
+            this.whenResolved().cancel(false);
+            if (this.redirect != null) {
+                this.redirect.close();
+            }
         }
     }
 

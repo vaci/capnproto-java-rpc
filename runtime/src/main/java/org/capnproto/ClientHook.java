@@ -3,7 +3,7 @@ package org.capnproto;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
-public interface ClientHook {
+public interface ClientHook extends AutoCloseable {
 
     Object NULL_CAPABILITY_BRAND = new Object();
     Object BROKEN_CAPABILITY_BRAND = new Object();
