@@ -913,7 +913,13 @@ private:
               "\n"),
 
             // TODO pipelineMethodDecls
-            kj::strTree()
+            hasDiscriminantValue(proto)
+              ? kj::strTree()
+              : kj::strTree(
+                spaces(indent), "  default ", titleCase, ".Pipeline get", titleCase, "() {\n",
+                spaces(indent), "    var pipeline = this.typelessPipeline().noop();\n",
+                spaces(indent), "    return () -> pipeline;\n",
+                spaces(indent), "  }\n")
           };
       }
     }
