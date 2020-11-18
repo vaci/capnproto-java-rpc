@@ -1,22 +1,20 @@
 package org.capnproto;
 
-import java.io.IOException;
 import java.nio.channels.AsynchronousByteChannel;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.logging.Logger;
 
 public class TwoPartyVatNetwork
         implements VatNetwork<RpcTwoPartyProtocol.VatId.Reader>,
                    VatNetwork.Connection<RpcTwoPartyProtocol.VatId.Reader> {
 
+    private static final Logger LOGGER = Logger.getLogger(TwoPartyVatNetwork.class.getName());
+
     @Override
     public CompletableFuture<Connection<RpcTwoPartyProtocol.VatId.Reader>> baseAccept() {
         return this.accept();
-    }
-
-    public interface MessageTap {
-        void incoming(IncomingRpcMessage message, RpcTwoPartyProtocol.Side side);
     }
 
     private CompletableFuture<java.lang.Void> previousWrite = CompletableFuture.completedFuture(null);
@@ -25,7 +23,7 @@ public class TwoPartyVatNetwork
     private final RpcTwoPartyProtocol.Side side;
     private final MessageBuilder peerVatId = new MessageBuilder(4);
     private boolean accepted;
-    private MessageTap tap;
+    private final RpcDumper tap = new RpcDumper();
 
     public TwoPartyVatNetwork(AsynchronousByteChannel channel, RpcTwoPartyProtocol.Side side) {
         this.channel = channel;
@@ -54,10 +52,6 @@ public class TwoPartyVatNetwork
 
     public RpcTwoPartyProtocol.Side getSide() {
         return side;
-    }
-
-    public void setTap(MessageTap tap) {
-        this.tap = tap;
     }
 
     public Connection<RpcTwoPartyProtocol.VatId.Reader> asConnection() {
@@ -97,26 +91,12 @@ public class TwoPartyVatNetwork
 
     @Override
     public CompletableFuture<IncomingRpcMessage> receiveIncomingMessage() {
-        var message = Serialize.readAsync(channel)
-                .thenApply(reader -> (IncomingRpcMessage) new IncomingMessage(reader))
+        return Serialize.readAsync(channel)
+                .thenApply(reader -> {
+                    LOGGER.info(() -> this.tap.dump(this.side.name(), reader.getRoot(RpcProtocol.Message.factory)));
+                    return (IncomingRpcMessage) new IncomingMessage(reader);
+                })
                 .exceptionally(exc -> null);
-
-        // send to message tap
-        if (this.tap != null) {
-            message = message.whenComplete((msg, exc) -> {
-                if (this.tap == null || msg == null) {
-                    return;
-                }
-
-                var side = this.getSide() == RpcTwoPartyProtocol.Side.CLIENT
-                        ? RpcTwoPartyProtocol.Side.SERVER
-                        : RpcTwoPartyProtocol.Side.CLIENT;
-
-                this.tap.incoming(msg, side);
-            });
-        }
-
-        return message;
     }
 
     @Override
@@ -160,7 +140,10 @@ public class TwoPartyVatNetwork
 
         @Override
         public void send() {
-            previousWrite = previousWrite.thenCompose(x -> Serialize.writeAsync(channel, message));
+            previousWrite = previousWrite.thenCompose(void_ -> {
+                LOGGER.info(() -> tap.dump(side.toString(), message.getRoot(RpcProtocol.Message.factory).asReader()));
+                return Serialize.writeAsync(channel, message);
+            });
         }
 
         @Override

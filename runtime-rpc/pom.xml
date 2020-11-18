@@ -89,15 +89,16 @@
                         <phase>generate-sources</phase>
                         <configuration>
                             <target>
-                                <mkdir dir="src/main/generated/org/capnproto"/>
+                                <mkdir dir="src/main/generated/java/org/capnproto"/>
                                 <exec executable="capnp" failonerror="true">
                                     <arg value="compile"/>
                                     <arg value="-I"/>
                                     <arg value="../compiler/src/main/schema/"/>
                                     <arg value="--src-prefix=src/main/schema/"/>
-                                    <arg value="-o../capnpc-java:src/main/generated/org/capnproto"/>
+                                    <arg value="-o../capnpc-java:src/main/generated/java/org/capnproto"/>
                                     <arg value="src/main/schema/rpc.capnp"/>
                                     <arg value="src/main/schema/rpc-twoparty.capnp"/>
+                                    <arg value="src/main/schema/schema.capnp"/>
                                     <env key="CAPNP_LITE" value="1"/>
                                 </exec>
                             </target>
@@ -111,13 +112,33 @@
                         <phase>generate-test-sources</phase>
                         <configuration>
                             <target>
-                                <mkdir dir="src/test/generated/org/capnproto/rpctest"/>
+                                <mkdir dir="src/test/generated/java/org/capnproto/rpctest"/>
                                 <exec executable="capnp" failonerror="true">
                                     <arg value="compile"/>
                                     <arg value="-I"/>
                                     <arg value="../compiler/src/main/schema/"/>
                                     <arg value="--src-prefix=src/test/schema/"/>
-                                    <arg value="-o../capnpc-java:src/test/generated/org/capnproto/rpctest"/>
+                                    <arg value="-o../capnpc-java:src/test/generated/java/org/capnproto/rpctest"/>
+                                    <arg value="src/test/schema/test.capnp"/>
+                                </exec>
+                            </target>
+                        </configuration>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>generate-rpc-test-raw-schema</id>
+                        <phase>generate-test-sources</phase>
+                        <configuration>
+                            <target>
+                                <mkdir dir="src/test/generated/resources"/>
+                                <exec executable="capnp" failonerror="true" output="src/test/generated/resources/test.raw">
+                                    <arg value="compile"/>
+                                    <arg value="-I"/>
+                                    <arg value="../compiler/src/main/schema/"/>
+                                    <arg value="--src-prefix=src/test/schema/"/>
+                                    <arg value="-o/bin/cat"/>
                                     <arg value="src/test/schema/test.capnp"/>
                                 </exec>
                             </target>
@@ -141,7 +162,7 @@
                         </goals>
                         <configuration>
                             <sources>
-                                <source>src/main/generated</source>
+                                <source>src/main/generated/java</source>
                             </sources>
                         </configuration>
                     </execution>
@@ -153,8 +174,22 @@
                         </goals>
                         <configuration>
                             <sources>
-                                <source>src/test/generated</source>
+                                <source>src/test/generated/java</source>
                             </sources>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>add-generated-test-resources</id>
+                        <phase>generate-test-sources</phase>
+                        <goals>
+                            <goal>add-test-resource</goal>
+                        </goals>
+                        <configuration>
+                            <resources>
+                                <resource>
+                                    <directory>src/test/generated/resources</directory>
+                                </resource>
+                            </resources>
                         </configuration>
                     </execution>
                 </executions>

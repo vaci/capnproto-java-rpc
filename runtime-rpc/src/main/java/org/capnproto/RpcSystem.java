@@ -1,9 +1,5 @@
 package org.capnproto;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -15,7 +11,7 @@ public class RpcSystem<VatId extends StructReader> {
     private final Map<VatNetwork.Connection<VatId>, RpcState<VatId>> connections = new ConcurrentHashMap<>();
 
     public RpcSystem(VatNetwork<VatId> network) {
-        this(network, (BootstrapFactory)null);
+        this(network, (BootstrapFactory<VatId>)null);
     }
 
     public RpcSystem(VatNetwork<VatId> network,

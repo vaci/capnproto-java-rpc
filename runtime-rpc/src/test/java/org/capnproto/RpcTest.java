@@ -25,6 +25,9 @@ import org.capnproto.rpctest.Test;
 
 import org.junit.Assert;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
@@ -33,9 +36,33 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Logger;
+
 import static org.capnproto.RpcState.FromException;
 
 public class RpcTest {
+
+    private static final Logger LOGGER = Logger.getLogger(RpcTest.class.getName());
+    private static final RpcDumper TAP = new RpcDumper();
+
+    static {
+        try {
+            var resource = RpcTest.class.getResourceAsStream("/test.raw");
+            var bytes = resource.readAllBytes();
+            var code = SchemaLoader.loadSchema(bytes);
+            for (var node: code.getNodes()) {
+                if (node.hasDisplayName()) {
+                    System.out.println(String.format("0x%x", node.getId()) + ": " + node.getDisplayName());
+                }
+                var id = node.getId();
+                TAP.addSchema(id, node);
+            }
+
+        }
+        catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
     static final class TestNetwork {
 
@@ -118,6 +145,10 @@ public class RpcTest {
                             }
                         };
 
+
+                        LOGGER.info(() -> TAP.dump(Connection.this.toString(),
+                                message.getRoot(RpcProtocol.Message.factory).asReader()));
+
                         if (partner == null) {
                             return;
                         }
@@ -158,8 +189,11 @@ public class RpcTest {
                 }
                 else {
                     this.getNetwork().received++;
-                    var result = this.messages.remove();
-                    return CompletableFuture.completedFuture(result);
+                    var message = this.messages.remove();
+
+                    LOGGER.info(() -> TAP.dump(Connection.this.toString(),
+                            message.getBody().getAs(RpcProtocol.Message.factory)));
+                    return CompletableFuture.completedFuture(message);
                 }
             }
 
