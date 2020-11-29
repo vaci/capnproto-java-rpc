@@ -329,6 +329,9 @@ class RpcTestUtil {
         private final Counter dummy = new Counter();
         private final TestInterfaceImpl impl = new TestInterfaceImpl(dummy);
 
+        public TestCapDestructor() {
+        }
+
         @Override
         protected CompletableFuture<java.lang.Void> foo(CallContext<Test.TestInterface.FooParams.Reader, Test.TestInterface.FooResults.Builder> context) {
             return this.impl.foo(context);

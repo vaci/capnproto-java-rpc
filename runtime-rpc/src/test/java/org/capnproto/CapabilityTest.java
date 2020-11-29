@@ -25,6 +25,7 @@ import org.capnproto.rpctest.Test;
 
 import org.junit.Assert;
 
+import java.lang.ref.WeakReference;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -353,5 +354,30 @@ public final class CapabilityTest {
         Assert.assertTrue(resolved1.get());
         Assert.assertTrue(resolved2.get());
         Assert.assertTrue(resolved3.get());
+    }
+
+    @org.junit.Test
+    public void testCancellation() {
+        var callCount = new Counter();
+        var handleCount = new Counter();
+        var server = new RpcTestUtil.TestMoreStuffImpl(callCount, handleCount);
+        var client = new Test.TestMoreStuff.Client(server);
+        var cap = new RpcTestUtil.TestCapDestructor();
+        var ref = new WeakReference<>(cap);
+
+        var request = client.expectCancelRequest();
+        request.getParams().setCap(cap);
+        var result = request.send();
+
+        // release capability
+        cap = null;
+        request = null;
+
+        Assert.assertTrue(result.isCancelled());
+
+        // confirm that the capability is dropped
+        do {
+            System.gc();
+        } while (ref.get() != null);
     }
 }
