@@ -1034,7 +1034,7 @@ private:
         if (defaultBody.hasAnyPointer()) {
           defaultOffset = field.getDefaultValueSchemaOffset();
         }
-        if (field.getType().getBrandParameter() != nullptr && false) {
+        if (field.getType().getBrandParameter() != nullptr) {
           kind = FieldKind::BRAND_PARAMETER;
         } else {
           kind = FieldKind::ANY_POINTER;
@@ -1043,10 +1043,10 @@ private:
             kind = FieldKind::ANY_POINTER;
             break;
           case schema::Type::AnyPointer::Unconstrained::STRUCT:
-            kind = FieldKind::ANY_POINTER;
+            kind = FieldKind::STRUCT;
             break;
           case schema::Type::AnyPointer::Unconstrained::LIST:
-            kind = FieldKind::ANY_POINTER;
+            kind = FieldKind::LIST;
             break;
           case schema::Type::AnyPointer::Unconstrained::CAPABILITY:
             kind = FieldKind::INTERFACE;
@@ -1470,6 +1470,8 @@ private:
               )
           ),
       };
+    } else if (kind == FieldKind::BRAND_PARAMETER) {
+      KJ_UNREACHABLE;
     } else {
       KJ_UNREACHABLE;
     }
@@ -1909,6 +1911,10 @@ private:
     bool isStreaming = method.isStreaming();
 
     auto implicitParamsReader = proto.getImplicitParameters();
+    auto implicitParamsBuilder = kj::heapArrayBuilder<capnp::Text::Reader>(implicitParamsReader.size());
+    for (auto param: implicitParamsReader) {
+      implicitParamsBuilder.add(param.getName());
+    }
 
     auto interfaceTypeName = javaFullName(method.getContainingInterface());
     kj::String paramType;
