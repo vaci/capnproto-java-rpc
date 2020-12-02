@@ -149,13 +149,6 @@ struct TestRecipientId {}
 struct TestThirdPartyCapId {}
 struct TestJoinResult {}
 
-struct TestAnyPointer {
-  anyPointerField @0 :AnyPointer;
-
-  # Do not add any other fields here!  Some tests rely on anyPointerField being the last pointer
-  # in the struct.
-}
-
 interface TestInterface {
   foo @0 (i :UInt32, j :Bool) -> (x :Text);
   bar @1 () -> ();
@@ -260,38 +253,3 @@ interface TestMoreStuff extends(TestCallOrder) {
   # the second. Also creates a socketpair, writes "baz" to one end, and returns the other end.
 }
 
-struct TestGenerics(Foo, Bar) {
-  foo @0 :Foo;
-  rev @1 :TestGenerics(Bar, Foo);
-
-  struct Inner {
-    foo @0 :Foo;
-    bar @1 :Bar;
-  }
-
-  struct Inner2(Baz) {
-    bar @0 :Bar;
-    baz @1 :Baz;
-    innerBound @2 :Inner;
-    innerUnbound @3 :TestGenerics.Inner;
-
-    struct DeepNest(Qux) {
-      foo @0 :Foo;
-      bar @1 :Bar;
-      baz @2 :Baz;
-      qux @3 :Qux;
-
-      interface DeepNestInterface(Quux) {
-        # At one time this failed to compile.
-        call @0 () -> ();
-      }
-    }
-  }
-
-  interface Interface(Qux) {
-    call @0 Inner2(Text) -> (qux :Qux, gen :TestGenerics(TestAllTypes, TestAnyPointer));
-  }
-
-  struct InnerStruct(Qux) {
-  }
-}
