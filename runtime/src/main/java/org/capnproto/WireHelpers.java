@@ -57,12 +57,13 @@ final class WireHelpers {
 
     static AllocateResult allocate(int refOffset,
                                    SegmentBuilder segment,
+                                   CapTableBuilder capTable,
                                    int amount, // in words
                                    byte kind) {
 
         long ref = segment.get(refOffset);
         if (!WirePointer.isNull(ref)) {
-            zeroObject(segment, refOffset);
+            zeroObject(segment, capTable, refOffset);
         }
 
         if (amount == 0 && kind == WirePointer.STRUCT) {
@@ -183,6 +184,10 @@ final class WireHelpers {
     }
 
     static void zeroObject(SegmentBuilder segment, int refOffset) {
+        zeroObject(segment, null, refOffset);
+    }
+
+    static void zeroObject(SegmentBuilder segment, CapTableBuilder capTable, int refOffset) {
         //# Zero out the pointed-to object. Use when the pointer is
         //# about to be overwritten making the target object no longer
         //# reachable.
@@ -195,7 +200,7 @@ final class WireHelpers {
         switch (WirePointer.kind(ref)) {
         case WirePointer.STRUCT:
         case WirePointer.LIST:
-            zeroObject(segment, ref, WirePointer.target(refOffset, ref));
+            zeroObject(segment, capTable, ref, WirePointer.target(refOffset, ref));
             break;
         case WirePointer.FAR: {
             segment = segment.getArena().getSegment(FarPointer.getSegmentId(ref));
@@ -205,13 +210,13 @@ final class WireHelpers {
                 if (FarPointer.isDoubleFar(ref)) {
                     SegmentBuilder otherSegment = segment.getArena().getSegment(FarPointer.getSegmentId(ref));
                     if (otherSegment.isWritable()) {
-                        zeroObject(otherSegment, padOffset + 1, FarPointer.positionInSegment(pad));
+                        zeroObject(otherSegment, capTable, padOffset + 1, FarPointer.positionInSegment(pad));
                     }
                     segment.buffer.putLong(padOffset * 8, 0L);
                     segment.buffer.putLong((padOffset + 1) * 8, 0L);
 
                 } else {
-                    zeroObject(segment, padOffset);
+                    zeroObject(segment, capTable, padOffset);
                     segment.buffer.putLong(padOffset * 8, 0L);
                 }
             }
@@ -219,12 +224,24 @@ final class WireHelpers {
             break;
         }
         case WirePointer.OTHER: {
-            // TODO
+            assert WirePointer.isCapability(ref) : "Unknown pointer type";
+            if (WirePointer.isCapability(ref)) {
+                int capIndex = WirePointer.upper32Bits(ref);
+                assert capTable != null: "Cannot zero out capability pointer with no capTable";
+                if (capTable != null) {
+                    capTable.dropCap(capIndex);
+                }
+            }
+            break;
         }
         }
     }
 
     static void zeroObject(SegmentBuilder segment, long tag, int ptr) {
+        zeroObject(segment, null, tag, ptr);
+    }
+
+    static void zeroObject(SegmentBuilder segment, CapTableBuilder capTable, long tag, int ptr) {
         //# We shouldn't zero out external data linked into the message.
         if (!segment.isWritable()) return;
 
@@ -233,7 +250,7 @@ final class WireHelpers {
             int pointerSection = ptr + StructPointer.dataSize(tag);
             int count = StructPointer.ptrCount(tag);
             for (int ii = 0; ii < count; ++ii) {
-                zeroObject(segment, pointerSection + ii);
+                zeroObject(segment, capTable, pointerSection + ii);
             }
             memset(segment.buffer, ptr * Constants.BYTES_PER_WORD, (byte)0,
                    StructPointer.wordSize(tag) * Constants.BYTES_PER_WORD);
@@ -256,7 +273,7 @@ final class WireHelpers {
             case ElementSize.POINTER: {
                 int count = ListPointer.elementCount(tag);
                 for (int ii = 0; ii < count; ++ii) {
-                    zeroObject(segment, ptr + ii);
+                    zeroObject(segment, capTable, ptr + ii);
                 }
                 memset(segment.buffer, ptr * Constants.BYTES_PER_WORD, (byte)0,
                        count * Constants.BYTES_PER_WORD);
@@ -275,7 +292,7 @@ final class WireHelpers {
                 for (int ii = 0; ii < count; ++ii) {
                     pos += dataSize;
                     for (int jj = 0; jj < pointerCount; ++jj) {
-                        zeroObject(segment, pos);
+                        zeroObject(segment, capTable, pos);
                         pos += Constants.POINTER_SIZE_IN_WORDS;
                     }
                 }
@@ -400,16 +417,36 @@ final class WireHelpers {
                                    int refOffset,
                                    SegmentBuilder segment,
                                    StructSize size) {
-        AllocateResult allocation = allocate(refOffset, segment, size.total(), WirePointer.STRUCT);
+        return initStructPointer(factory, refOffset, segment, null, size);
+    }
+
+    static <T> T initStructPointer(StructBuilder.Factory<T> factory,
+                                   int refOffset,
+                                   SegmentBuilder segment,
+                                   CapTableBuilder capTable,
+                                   StructSize size) {
+        AllocateResult allocation = allocate(refOffset, segment, capTable, size.total(), WirePointer.STRUCT);
         StructPointer.setFromStructSize(allocation.segment.buffer, allocation.refOffset, size);
-        return factory.constructBuilder(allocation.segment, allocation.ptr * Constants.BYTES_PER_WORD,
+        return factory.constructBuilder(allocation.segment, capTable, allocation.ptr * Constants.BYTES_PER_WORD,
                                          allocation.ptr + size.data,
                                          size.data * 64, size.pointers);
     }
 
     static <T> T getWritableStructPointer(StructBuilder.Factory<T> factory,
+            int refOffset,
+            SegmentBuilder segment,
+            StructSize size,
+            SegmentReader defaultSegment,
+            int defaultOffset) {
+        return getWritableStructPointer(
+                factory, refOffset, segment, null,
+                size, defaultSegment, defaultOffset);
+    }
+
+    static <T> T getWritableStructPointer(StructBuilder.Factory<T> factory,
                                           int refOffset,
                                           SegmentBuilder segment,
+                                          CapTableBuilder capTable,
                                           StructSize size,
                                           SegmentReader defaultSegment,
                                           int defaultOffset) {
@@ -417,7 +454,7 @@ final class WireHelpers {
         int target = WirePointer.target(refOffset, ref);
         if (WirePointer.isNull(ref)) {
             if (defaultSegment == null) {
-                return initStructPointer(factory, refOffset, segment, size);
+                return initStructPointer(factory, refOffset, segment, capTable, size);
             } else {
                 throw new RuntimeException("unimplemented");
             }
@@ -440,7 +477,7 @@ final class WireHelpers {
             //# Don't let allocate() zero out the object just yet.
             zeroPointerAndFars(segment, refOffset);
 
-            AllocateResult allocation = allocate(refOffset, segment,
+            AllocateResult allocation = allocate(refOffset, segment, capTable,
                                                  totalSize, WirePointer.STRUCT);
 
             StructPointer.set(allocation.segment.buffer, allocation.refOffset,
@@ -466,11 +503,11 @@ final class WireHelpers {
             memset(resolved.segment.buffer, resolved.ptr * Constants.BYTES_PER_WORD, (byte)0,
                    (oldDataSize + oldPointerCount * Constants.WORDS_PER_POINTER) * Constants.BYTES_PER_WORD);
 
-            return factory.constructBuilder(allocation.segment, allocation.ptr * Constants.BYTES_PER_WORD,
+            return factory.constructBuilder(allocation.segment, capTable, allocation.ptr * Constants.BYTES_PER_WORD,
                                             newPointerSection, newDataSize * Constants.BITS_PER_WORD,
                                             newPointerCount);
         } else {
-            return factory.constructBuilder(resolved.segment, resolved.ptr * Constants.BYTES_PER_WORD,
+            return factory.constructBuilder(resolved.segment, capTable, resolved.ptr * Constants.BYTES_PER_WORD,
                                             oldPointerSection, oldDataSize * Constants.BITS_PER_WORD,
                                             (short)oldPointerCount);
         }
@@ -478,6 +515,7 @@ final class WireHelpers {
     }
 
     static <T> T initListPointer(ListBuilder.Factory<T> factory,
+                                 CapTableBuilder capTable,
                                  int refOffset,
                                  SegmentBuilder segment,
                                  int elementCount,
@@ -488,16 +526,25 @@ final class WireHelpers {
         int pointerCount = ElementSize.pointersPerElement(elementSize);
         int step = dataSize + pointerCount * Constants.BITS_PER_POINTER;
         int wordCount = roundBitsUpToWords((long)elementCount * (long)step);
-        AllocateResult allocation = allocate(refOffset, segment, wordCount, WirePointer.LIST);
+        AllocateResult allocation = allocate(refOffset, segment, capTable, wordCount, WirePointer.LIST);
 
         ListPointer.set(allocation.segment.buffer, allocation.refOffset, elementSize, elementCount);
 
-        return factory.constructBuilder(allocation.segment,
+        return factory.constructBuilder(allocation.segment, capTable,
                                         allocation.ptr * Constants.BYTES_PER_WORD,
                                         elementCount, step, dataSize, (short)pointerCount);
     }
 
     static <T> T initStructListPointer(ListBuilder.Factory<T> factory,
+            int refOffset,
+            SegmentBuilder segment,
+            int elementCount,
+            StructSize elementSize) {
+        return initStructListPointer(factory, null, refOffset, segment, elementCount, elementSize);
+    }
+
+    static <T> T initStructListPointer(ListBuilder.Factory<T> factory,
+                                       CapTableBuilder capTable,
                                        int refOffset,
                                        SegmentBuilder segment,
                                        int elementCount,
@@ -506,7 +553,7 @@ final class WireHelpers {
 
         //# Allocate the list, prefixed by a single WirePointer.
         int wordCount = elementCount * wordsPerElement;
-        AllocateResult allocation = allocate(refOffset, segment, Constants.POINTER_SIZE_IN_WORDS + wordCount,
+        AllocateResult allocation = allocate(refOffset, segment, capTable, Constants.POINTER_SIZE_IN_WORDS + wordCount,
                                              WirePointer.LIST);
 
         //# Initialize the pointer.
@@ -515,15 +562,27 @@ final class WireHelpers {
                                                               WirePointer.STRUCT, elementCount);
         StructPointer.setFromStructSize(allocation.segment.buffer, allocation.ptr, elementSize);
 
-        return factory.constructBuilder(allocation.segment,
+        return factory.constructBuilder(allocation.segment, capTable,
                                         (allocation.ptr + 1) * Constants.BYTES_PER_WORD,
                                         elementCount, wordsPerElement * Constants.BITS_PER_WORD,
                                         elementSize.data * Constants.BITS_PER_WORD, elementSize.pointers);
     }
 
     static <T> T getWritableListPointer(ListBuilder.Factory<T> factory,
+            int origRefOffset,
+            SegmentBuilder origSegment,
+            byte elementSize,
+            SegmentReader defaultSegment,
+            int defaultOffset) {
+        return getWritableListPointer(
+                factory, origRefOffset, origSegment, null,
+                elementSize, defaultSegment, defaultOffset);
+    }
+
+    static <T> T getWritableListPointer(ListBuilder.Factory<T> factory,
                                         int origRefOffset,
                                         SegmentBuilder origSegment,
+                                        CapTableBuilder capTable,
                                         byte elementSize,
                                         SegmentReader defaultSegment,
                                         int defaultOffset) {
@@ -573,13 +632,25 @@ final class WireHelpers {
 
             int step = dataSize + pointerCount * Constants.BITS_PER_POINTER;
 
-            return factory.constructBuilder(resolved.segment, resolved.ptr * Constants.BYTES_PER_WORD,
+            return factory.constructBuilder(resolved.segment, capTable, resolved.ptr * Constants.BYTES_PER_WORD,
                                             ListPointer.elementCount(resolved.ref),
                                             step, dataSize, (short) pointerCount);
         }
     }
 
     static <T> T getWritableStructListPointer(ListBuilder.Factory<T> factory,
+            int origRefOffset,
+            SegmentBuilder origSegment,
+            StructSize elementSize,
+            SegmentReader defaultSegment,
+            int defaultOffset) {
+        return getWritableStructListPointer(
+                factory, null, origRefOffset, origSegment,
+                elementSize, defaultSegment, defaultOffset);
+    }
+
+    static <T> T getWritableStructListPointer(ListBuilder.Factory<T> factory,
+                                              CapTableBuilder capTable,
                                               int origRefOffset,
                                               SegmentBuilder origSegment,
                                               StructSize elementSize,
@@ -615,7 +686,7 @@ final class WireHelpers {
 
             if (oldDataSize >= elementSize.data && oldPointerCount >= elementSize.pointers) {
                 //# Old size is at least as large as we need. Ship it.
-                return factory.constructBuilder(resolved.segment, oldPtr * Constants.BYTES_PER_WORD,
+                return factory.constructBuilder(resolved.segment, capTable, oldPtr * Constants.BYTES_PER_WORD,
                                                 elementCount,
                                                 oldStep * Constants.BITS_PER_WORD,
                                                 oldDataSize * Constants.BITS_PER_WORD,
@@ -633,7 +704,7 @@ final class WireHelpers {
             //# Don't let allocate() zero out the object just yet.
             zeroPointerAndFars(origSegment, origRefOffset);
 
-            AllocateResult allocation = allocate(origRefOffset, origSegment,
+            AllocateResult allocation = allocate(origRefOffset, origSegment, capTable,
                                                  totalSize + Constants.POINTER_SIZE_IN_WORDS,
                                                  WirePointer.LIST);
 
@@ -672,7 +743,7 @@ final class WireHelpers {
             memset(resolved.segment.buffer, resolved.ptr * Constants.BYTES_PER_WORD,
                    (byte)0, (1 + oldStep * elementCount) * Constants.BYTES_PER_WORD);
 
-            return factory.constructBuilder(allocation.segment, newPtr * Constants.BYTES_PER_WORD,
+            return factory.constructBuilder(allocation.segment, capTable, newPtr * Constants.BYTES_PER_WORD,
                                             elementCount,
                                             newStep * Constants.BITS_PER_WORD,
                                             newDataSize * Constants.BITS_PER_WORD,
@@ -687,7 +758,7 @@ final class WireHelpers {
 
             if (oldSize == ElementSize.VOID) {
                 //# Nothing to copy, just allocate a new list.
-                return initStructListPointer(factory, origRefOffset, origSegment,
+                return initStructListPointer(factory, capTable, origRefOffset, origSegment,
                                              elementCount, elementSize);
             } else {
                 //# Upgrading to an inline composite list.
@@ -713,7 +784,7 @@ final class WireHelpers {
                 //# Don't let allocate() zero out the object just yet.
                 zeroPointerAndFars(origSegment, origRefOffset);
 
-                AllocateResult allocation = allocate(origRefOffset, origSegment,
+                AllocateResult allocation = allocate(origRefOffset, origSegment, capTable,
                                                      totalWords + Constants.POINTER_SIZE_IN_WORDS,
                                                      WirePointer.LIST);
 
@@ -751,7 +822,7 @@ final class WireHelpers {
                 memset(resolved.segment.buffer, resolved.ptr * Constants.BYTES_PER_WORD,
                        (byte)0, roundBitsUpToBytes(oldStep * elementCount));
 
-                return factory.constructBuilder(allocation.segment, newPtr * Constants.BYTES_PER_WORD,
+                return factory.constructBuilder(allocation.segment, capTable, newPtr * Constants.BYTES_PER_WORD,
                                                 elementCount,
                                                 newStep * Constants.BITS_PER_WORD,
                                                 newDataSize * Constants.BITS_PER_WORD,
@@ -762,13 +833,20 @@ final class WireHelpers {
 
     // size is in bytes
     static Text.Builder initTextPointer(int refOffset,
+            SegmentBuilder segment,
+            int size) {
+        return initTextPointer(refOffset, segment, null, size);
+    }
+
+    static Text.Builder initTextPointer(int refOffset,
                                         SegmentBuilder segment,
+                                        CapTableBuilder capTable,
                                         int size) {
         //# The byte list must include a NUL terminator.
         int byteSize = size + 1;
 
         //# Allocate the space.
-        AllocateResult allocation = allocate(refOffset, segment, roundBytesUpToWords(byteSize),
+        AllocateResult allocation = allocate(refOffset, segment, capTable, roundBytesUpToWords(byteSize),
                                              WirePointer.LIST);
 
         //# Initialize the pointer.
@@ -778,9 +856,16 @@ final class WireHelpers {
     }
 
     static Text.Builder setTextPointer(int refOffset,
+            SegmentBuilder segment,
+            Text.Reader value) {
+        return setTextPointer(refOffset, segment, null, value);
+    }
+
+    static Text.Builder setTextPointer(int refOffset,
                                        SegmentBuilder segment,
+                                       CapTableBuilder capTable,
                                        Text.Reader value) {
-        Text.Builder builder = initTextPointer(refOffset, segment, value.size);
+        Text.Builder builder = initTextPointer(refOffset, segment, capTable, value.size);
 
         ByteBuffer slice = value.buffer.duplicate();
         slice.position(value.offset);
@@ -791,7 +876,17 @@ final class WireHelpers {
     }
 
     static Text.Builder getWritableTextPointer(int refOffset,
+            SegmentBuilder segment,
+            ByteBuffer defaultBuffer,
+            int defaultOffset,
+            int defaultSize) {
+        return getWritableTextPointer(refOffset, segment, null,
+                defaultBuffer, defaultOffset, defaultSize);
+    }
+
+    static Text.Builder getWritableTextPointer(int refOffset,
                                                SegmentBuilder segment,
+                                               CapTableBuilder capTable,
                                                ByteBuffer defaultBuffer,
                                                int defaultOffset,
                                                int defaultSize) {
@@ -801,7 +896,7 @@ final class WireHelpers {
             if (defaultBuffer == null) {
                 return new Text.Builder();
             } else {
-                Text.Builder builder = initTextPointer(refOffset, segment, defaultSize);
+                Text.Builder builder = initTextPointer(refOffset, segment, capTable, defaultSize);
                 // TODO is there a way to do this with bulk methods?
                 for (int i = 0; i < builder.size; ++i) {
                     builder.buffer.put(builder.offset + i, defaultBuffer.get(defaultOffset * 8 + i));
@@ -834,10 +929,17 @@ final class WireHelpers {
 
     // size is in bytes
     static Data.Builder initDataPointer(int refOffset,
+            SegmentBuilder segment,
+            int size) {
+        return initDataPointer(refOffset, segment, null, size);
+    }
+
+    static Data.Builder initDataPointer(int refOffset,
                                         SegmentBuilder segment,
+                                        CapTableBuilder capTable,
                                         int size) {
         //# Allocate the space.
-        AllocateResult allocation = allocate(refOffset, segment, roundBytesUpToWords(size),
+        AllocateResult allocation = allocate(refOffset, segment, capTable, roundBytesUpToWords(size),
                                              WirePointer.LIST);
 
         //# Initialize the pointer.
@@ -847,9 +949,16 @@ final class WireHelpers {
     }
 
     static Data.Builder setDataPointer(int refOffset,
+            SegmentBuilder segment,
+            Data.Reader value) {
+        return setDataPointer(refOffset, segment, null, value);
+    }
+
+    static Data.Builder setDataPointer(int refOffset,
                                        SegmentBuilder segment,
+                                       CapTableBuilder capTable,
                                        Data.Reader value) {
-        Data.Builder builder = initDataPointer(refOffset, segment, value.size);
+        Data.Builder builder = initDataPointer(refOffset, segment, capTable, value.size);
 
         // TODO is there a way to do this with bulk methods?
         for (int i = 0; i < builder.size; ++i) {
@@ -859,7 +968,18 @@ final class WireHelpers {
     }
 
     static Data.Builder getWritableDataPointer(int refOffset,
+            SegmentBuilder segment,
+            ByteBuffer defaultBuffer,
+            int defaultOffset,
+            int defaultSize) {
+        return getWritableDataPointer(
+                refOffset, segment, null,
+                defaultBuffer, defaultOffset, defaultSize);
+    }
+
+    static Data.Builder getWritableDataPointer(int refOffset,
                                                SegmentBuilder segment,
+                                               CapTableBuilder capTable,
                                                ByteBuffer defaultBuffer,
                                                int defaultOffset,
                                                int defaultSize) {
@@ -869,7 +989,7 @@ final class WireHelpers {
             if (defaultBuffer == null) {
                 return new Data.Builder();
             } else {
-                Data.Builder builder = initDataPointer(refOffset, segment, defaultSize);
+                Data.Builder builder = initDataPointer(refOffset, segment, capTable, defaultSize);
                 // TODO is there a way to do this with bulk methods?
                 for (int i = 0; i < builder.size; ++i) {
                     builder.buffer.put(builder.offset + i, defaultBuffer.get(defaultOffset * 8 + i));
@@ -895,7 +1015,18 @@ final class WireHelpers {
     }
 
     static <T> T readStructPointer(StructReader.Factory<T> factory,
+            SegmentReader segment,
+            int refOffset,
+            SegmentReader defaultSegment,
+            int defaultOffset,
+            int nestingLimit) {
+        return readStructPointer(factory, segment, null,
+                refOffset, defaultSegment, defaultOffset, nestingLimit);
+    }
+
+    static <T> T readStructPointer(StructReader.Factory<T> factory,
                                    SegmentReader segment,
+                                   CapTableReader capTable,
                                    int refOffset,
                                    SegmentReader defaultSegment,
                                    int defaultOffset,
@@ -927,6 +1058,7 @@ final class WireHelpers {
         resolved.segment.arena.checkReadLimit(StructPointer.wordSize(resolved.ref));
 
         return factory.constructReader(resolved.segment,
+                                       capTable,
                                        resolved.ptr * Constants.BYTES_PER_WORD,
                                        (resolved.ptr + dataSizeWords),
                                        dataSizeWords * Constants.BITS_PER_WORD,
@@ -935,11 +1067,62 @@ final class WireHelpers {
 
     }
 
-    static SegmentBuilder setStructPointer(SegmentBuilder segment, int refOffset, StructReader value) {
+    static StructReader readStructPointer(SegmentReader segment,
+            int refOffset,
+            SegmentReader defaultSegment,
+            int defaultOffset,
+            int nestingLimit) {
+        return readStructPointer(segment, null, refOffset,
+                defaultSegment, defaultOffset, nestingLimit);
+    }
+
+    static StructReader readStructPointer(SegmentReader segment,
+                                   CapTableReader capTable,
+                                   int refOffset,
+                                   SegmentReader defaultSegment,
+                                   int defaultOffset,
+                                   int nestingLimit) {
+        long ref = segment.get(refOffset);
+        if (WirePointer.isNull(ref)) {
+            if (defaultSegment == null) {
+                return new StructReader(SegmentReader.EMPTY, 0, 0, 0, (short) 0, 0x7fffffff);
+            } else {
+                segment = defaultSegment;
+                refOffset = defaultOffset;
+                ref = segment.get(refOffset);
+            }
+        }
+
+        if (nestingLimit <= 0) {
+            throw new DecodeException("Message is too deeply nested or contains cycles.");
+        }
+
+        int refTarget = WirePointer.target(refOffset, ref);
+        FollowFarsResult resolved = followFars(ref, refTarget, segment);
+
+        int dataSizeWords = StructPointer.dataSize(resolved.ref);
+
+        if (WirePointer.kind(resolved.ref) != WirePointer.STRUCT) {
+            throw new DecodeException("Message contains non-struct pointer where struct pointer was expected.");
+        }
+
+        resolved.segment.arena.checkReadLimit(StructPointer.wordSize(resolved.ref));
+
+        return new StructReader(resolved.segment,
+                capTable,
+                resolved.ptr * Constants.BYTES_PER_WORD,
+                (resolved.ptr + dataSizeWords),
+                dataSizeWords * Constants.BITS_PER_WORD,
+                (short)StructPointer.ptrCount(resolved.ref),
+                nestingLimit - 1);
+
+    }
+
+    static SegmentBuilder setStructPointer(SegmentBuilder segment, CapTableBuilder capTable, int refOffset, StructReader value) {
         int dataSize = roundBitsUpToWords(value.dataSize);
         int totalSize = dataSize + value.pointerCount * Constants.POINTER_SIZE_IN_WORDS;
 
-        AllocateResult allocation = allocate(refOffset, segment, totalSize, WirePointer.STRUCT);
+        AllocateResult allocation = allocate(refOffset, segment, capTable, totalSize, WirePointer.STRUCT);
         StructPointer.set(allocation.segment.buffer, allocation.refOffset,
                           (short)dataSize, value.pointerCount);
 
@@ -952,25 +1135,25 @@ final class WireHelpers {
 
         int pointerSection = allocation.ptr + dataSize;
         for (int i = 0; i < value.pointerCount; ++i) {
-            copyPointer(allocation.segment, pointerSection + i, value.segment, value.pointers + i,
+            copyPointer(allocation.segment, capTable, pointerSection + i, value.segment, value.capTable, value.pointers + i,
                         value.nestingLimit);
         }
         return allocation.segment;
     };
 
-    static SegmentBuilder setListPointer(SegmentBuilder segment, int refOffset, ListReader value) {
+    static SegmentBuilder setListPointer(SegmentBuilder segment, CapTableBuilder capTable, int refOffset, ListReader value) {
         int totalSize = roundBitsUpToWords(value.elementCount * value.step);
 
         if (value.step <= Constants.BITS_PER_WORD) {
             //# List of non-structs.
-            AllocateResult allocation = allocate(refOffset, segment, totalSize, WirePointer.LIST);
+            AllocateResult allocation = allocate(refOffset, segment, capTable, totalSize, WirePointer.LIST);
 
             if (value.structPointerCount == 1) {
                 //# List of pointers.
                 ListPointer.set(allocation.segment.buffer, allocation.refOffset, ElementSize.POINTER, value.elementCount);
                 for (int i = 0; i < value.elementCount; ++i) {
-                    copyPointer(allocation.segment, allocation.ptr + i,
-                                value.segment, value.ptr / Constants.BYTES_PER_WORD + i, value.nestingLimit);
+                    copyPointer(allocation.segment, capTable,allocation.ptr + i,
+                                value.segment, value.capTable, value.ptr / Constants.BYTES_PER_WORD + i, value.nestingLimit);
                 }
             } else {
                 //# List of data.
@@ -993,7 +1176,7 @@ final class WireHelpers {
             return allocation.segment;
         } else {
             //# List of structs.
-            AllocateResult allocation = allocate(refOffset, segment, totalSize + Constants.POINTER_SIZE_IN_WORDS, WirePointer.LIST);
+            AllocateResult allocation = allocate(refOffset, segment, capTable, totalSize + Constants.POINTER_SIZE_IN_WORDS, WirePointer.LIST);
             ListPointer.setInlineComposite(allocation.segment.buffer, allocation.refOffset, totalSize);
             short dataSize = (short)roundBitsUpToWords(value.structDataSize);
             short pointerCount = value.structPointerCount;
@@ -1014,7 +1197,7 @@ final class WireHelpers {
                 srcOffset += dataSize;
 
                 for (int j = 0; j < pointerCount; ++j) {
-                    copyPointer(allocation.segment, dstOffset, value.segment, srcOffset, value.nestingLimit);
+                    copyPointer(allocation.segment, capTable, dstOffset, value.segment, value.capTable, srcOffset, value.nestingLimit);
                     dstOffset += Constants.POINTER_SIZE_IN_WORDS;
                     srcOffset += Constants.POINTER_SIZE_IN_WORDS;
                 }
@@ -1042,6 +1225,12 @@ final class WireHelpers {
 
     static SegmentBuilder copyPointer(SegmentBuilder dstSegment, int dstOffset,
                                       SegmentReader srcSegment, int srcOffset, int nestingLimit) {
+        return copyPointer(dstSegment, null, dstOffset,
+                srcSegment, null, srcOffset, nestingLimit);
+    }
+
+    static SegmentBuilder copyPointer(SegmentBuilder dstSegment, CapTableBuilder dstCapTable, int dstOffset,
+                                      SegmentReader srcSegment, CapTableReader srcCapTable, int srcOffset, int nestingLimit) {
         // Deep-copy the object pointed to by src into dst.  It turns out we can't reuse
         // readStructPointer(), etc. because they do type checking whereas here we want to accept any
         // valid pointer.
@@ -1062,8 +1251,9 @@ final class WireHelpers {
                 throw new DecodeException("Message is too deeply nested or contains cycles. See org.capnproto.ReaderOptions.");
             }
             resolved.segment.arena.checkReadLimit(StructPointer.wordSize(resolved.ref));
-            return setStructPointer(dstSegment, dstOffset,
+            return setStructPointer(dstSegment, dstCapTable, dstOffset,
                                     new StructReader(resolved.segment,
+                                                     srcCapTable,
                                                      resolved.ptr * Constants.BYTES_PER_WORD,
                                                      resolved.ptr + StructPointer.dataSize(resolved.ref),
                                                      StructPointer.dataSize(resolved.ref) * Constants.BITS_PER_WORD,
@@ -1097,7 +1287,7 @@ final class WireHelpers {
                     resolved.segment.arena.checkReadLimit(elementCount);
                 }
 
-                return setListPointer(dstSegment, dstOffset,
+                return setListPointer(dstSegment, dstCapTable, dstOffset,
                                       new ListReader(resolved.segment,
                                                      ptr * Constants.BYTES_PER_WORD,
                                                      elementCount,
@@ -1120,7 +1310,7 @@ final class WireHelpers {
                     resolved.segment.arena.checkReadLimit(elementCount);
                 }
 
-                return setListPointer(dstSegment, dstOffset,
+                return setListPointer(dstSegment, dstCapTable, dstOffset,
                                       new ListReader(resolved.segment,
                                                      resolved.ptr * Constants.BYTES_PER_WORD,
                                                      elementCount,
@@ -1133,14 +1323,33 @@ final class WireHelpers {
         case WirePointer.FAR :
             throw new DecodeException("Unexpected FAR pointer.");
         case WirePointer.OTHER :
-            throw new RuntimeException("copyPointer is unimplemented for OTHER pointers");
+            if (WirePointer.isCapability(srcRef)) {
+                ClientHook cap = readCapabilityPointer(srcSegment, srcCapTable, srcOffset, 0);
+                setCapabilityPointer(dstSegment, dstCapTable, dstOffset, cap);
+                return dstSegment;
+            }
+            else {
+                throw new RuntimeException("copyPointer is unimplemented for OTHER pointers");
+            }
         }
         throw new RuntimeException("unreachable");
     }
 
     static <T> T readListPointer(ListReader.Factory<T> factory,
+            SegmentReader segment,
+            int refOffset,
+            SegmentReader defaultSegment,
+            int defaultOffset,
+            byte expectedElementSize,
+            int nestingLimit) {
+        return readListPointer(factory, segment, refOffset, null,
+                defaultSegment, defaultOffset, expectedElementSize, nestingLimit);
+    }
+
+    static <T> T readListPointer(ListReader.Factory<T> factory,
                                  SegmentReader segment,
                                  int refOffset,
+                                 CapTableReader capTable,
                                  SegmentReader defaultSegment,
                                  int defaultOffset,
                                  byte expectedElementSize,
@@ -1150,7 +1359,7 @@ final class WireHelpers {
 
         if (WirePointer.isNull(ref)) {
             if (defaultSegment == null) {
-                return factory.constructReader(SegmentReader.EMPTY, 0, 0, 0, 0, (short) 0, 0x7fffffff);
+                return factory.constructReader(SegmentReader.EMPTY, capTable, 0, 0, 0, 0, (short) 0, 0x7fffffff);
             } else {
                 segment = defaultSegment;
                 refOffset = defaultOffset;
@@ -1199,12 +1408,12 @@ final class WireHelpers {
 
             // TODO check whether the size is compatible
 
-            return factory.constructReader(resolved.segment,
+            return factory.constructReader(resolved.segment, capTable,
                                              ptr * Constants.BYTES_PER_WORD,
                                              size,
                                              wordsPerElement * Constants.BITS_PER_WORD,
                                              StructPointer.dataSize(tag) * Constants.BITS_PER_WORD,
-                                           (short)StructPointer.ptrCount(tag),
+                                             (short)StructPointer.ptrCount(tag),
                                              nestingLimit - 1);
         }
         default : {
@@ -1250,6 +1459,7 @@ final class WireHelpers {
             }
 
             return factory.constructReader(resolved.segment,
+                                             capTable,
                                              resolved.ptr * Constants.BYTES_PER_WORD,
                                              ListPointer.elementCount(resolved.ref),
                                              step,
@@ -1330,6 +1540,48 @@ final class WireHelpers {
         resolved.segment.arena.checkReadLimit(roundBytesUpToWords(size));
 
         return new Data.Reader(resolved.segment.buffer, resolved.ptr, size);
+    }
+
+    static void setCapabilityPointer(SegmentBuilder segment, CapTableBuilder capTable, int refOffset, ClientHook cap) {
+        long ref = segment.get(refOffset);
+
+        if (!WirePointer.isNull(ref)) {
+            zeroObject(segment, capTable, refOffset);
+        }
+
+        if (cap == null) {
+            // TODO check zeroMemory behaviour
+            zeroPointerAndFars(segment, refOffset);
+        }
+        else if (capTable != null) {
+            WirePointer.setCapability(segment.buffer, refOffset, capTable.injectCap(cap));
+        }
+        else {
+            assert false: "Cannot set capability pointer without capTable";
+        }
+    }
+
+    static ClientHook readCapabilityPointer(SegmentReader segment, CapTableReader capTable, int refOffset, int maxValue) {
+        long ref = segment.get(refOffset);
+
+        if (WirePointer.isNull(ref)) {
+            return Capability.newNullCap();
+        }
+
+        if (WirePointer.kind(ref) != WirePointer.OTHER) {
+            return Capability.newBrokenCap("Calling capability extracted from a non-capability pointer.");
+        }
+
+        if (capTable == null) {
+            return Capability.newBrokenCap("Cannot read capability pointer without capTable.");
+        }
+
+        int index = WirePointer.upper32Bits(ref);
+        ClientHook cap = capTable.extractCap(index);
+        if (cap == null) {
+            return Capability.newBrokenCap("Calling invalid capability pointer.");
+        }
+        return cap;
     }
 
 }

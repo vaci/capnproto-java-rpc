@@ -7,6 +7,7 @@ public interface ClientHook {
 
     static final Object NULL_CAPABILITY_BRAND = new Object();
     static final Object BROKEN_CAPABILITY_BRAND = new Object();
+
     /**
      * Start a new call, allowing the client to allocate request/response objects as it sees fit.
      * This version is used when calls are made from application code in the local process.
