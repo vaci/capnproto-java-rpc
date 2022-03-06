@@ -21,13 +21,23 @@
 
 package org.capnproto;
 
-public class ListReader {
+public class ListReader extends CapTableReader.ReaderContext {
     public interface Factory<T> {
         T constructReader(SegmentReader segment,
                           int ptr,
                           int elementCount, int step,
                           int structDataSize, short structPointerCount,
                           int nestingLimit);
+
+        default T constructReader(SegmentReader segment, CapTableReader capTable, int ptr,
+                                  int elementCount, int step,
+                                  int structDataSize, short structPointerCount, int nestingLimit) {
+            T result = constructReader(segment, ptr, elementCount, step, structDataSize, structPointerCount, nestingLimit);
+            if (result instanceof CapTableReader.ReaderContext) {
+                ((CapTableReader.ReaderContext) result).capTable = capTable;
+            }
+            return result;
+        }
     }
 
     final SegmentReader segment;

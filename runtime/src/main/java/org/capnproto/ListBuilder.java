@@ -21,11 +21,24 @@
 
 package org.capnproto;
 
-public class ListBuilder {
+
+import java.util.List;
+
+public class ListBuilder extends CapTableBuilder.BuilderContext {
     public interface Factory<T> {
         T constructBuilder(SegmentBuilder segment, int ptr,
                            int elementCount, int step,
                            int structDataSize, short structPointerCount);
+
+        default T constructBuilder(SegmentBuilder segment, CapTableBuilder capTable, int ptr,
+                           int elementCount, int step,
+                           int structDataSize, short structPointerCount) {
+            T result = constructBuilder(segment, ptr, elementCount, step, structDataSize, structPointerCount);
+            if (result instanceof CapTableBuilder.BuilderContext) {
+                ((CapTableBuilder.BuilderContext) result).capTable = capTable;
+            }
+            return result;
+        }
     }
 
     final SegmentBuilder segment;
