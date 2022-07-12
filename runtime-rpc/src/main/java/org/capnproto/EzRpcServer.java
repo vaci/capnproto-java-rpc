@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.AsynchronousChannelGroup;
 import java.nio.channels.AsynchronousServerSocketChannel;
+import java.nio.channels.AsynchronousSocketChannel;
+import java.nio.channels.CompletionHandler;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 
@@ -32,6 +34,21 @@ public class EzRpcServer {
     }
 
     public CompletableFuture<java.lang.Void> start() {
-        return this.twoPartyRpc.listen(this.serverAcceptSocket);
+        return this.twoPartyRpc.listen(new AsyncByteListenChannel() {
+            @Override
+            public <A> void accept(A attachment, CompletionHandler<AsyncByteChannel, ? super A> handler) {
+                serverAcceptSocket.accept(attachment, new CompletionHandler<>() {
+                    @Override
+                    public void completed(AsynchronousSocketChannel result, A attachment) {
+                        handler.completed(new AsyncSocketByteAdapter(result), attachment);
+                    }
+
+                    @Override
+                    public void failed(Throwable exc, A attachment) {
+                        handler.failed(exc, attachment);
+                    }
+                });
+            }
+        });
     }
 }

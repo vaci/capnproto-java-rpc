@@ -25,7 +25,7 @@ public class CalculatorClient {
         try {
             var clientSocket = AsynchronousSocketChannel.open();
             clientSocket.connect(address).get();
-            var rpcClient = new TwoPartyClient(clientSocket);
+            var rpcClient = new TwoPartyClient(new AsyncSocketByteAdapter(clientSocket));
             var calculator = new org.capnproto.examples.Calc.Calculator.Client(rpcClient.bootstrap());
 
             {

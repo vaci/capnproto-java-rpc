@@ -1,6 +1,5 @@
 package org.capnproto;
 
-import java.nio.channels.AsynchronousSocketChannel;
 import java.util.concurrent.CompletableFuture;
 
 public class EzRpcClient {
@@ -8,7 +7,7 @@ public class EzRpcClient {
     private final TwoPartyClient twoPartyRpc;
     private final Capability.Client client;
 
-    public EzRpcClient(AsynchronousSocketChannel socket) {
+    public EzRpcClient(AsyncByteChannel socket) {
         this.twoPartyRpc = new TwoPartyClient(socket);
         this.client = this.twoPartyRpc.bootstrap();
     }

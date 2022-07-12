@@ -340,11 +340,11 @@ public final class Serialize {
     }
 
     static class AsyncSocketReader extends AsyncMessageReader {
-        private final AsynchronousSocketChannel channel;
+        private final AsyncByteChannel channel;
         private final long timeout;
         private final TimeUnit timeUnit;
 
-        AsyncSocketReader(AsynchronousSocketChannel channel, ReaderOptions options, long timeout, TimeUnit timeUnit) {
+        AsyncSocketReader(AsyncByteChannel channel, ReaderOptions options, long timeout, TimeUnit timeUnit) {
             super(options);
             this.channel = channel;
             this.timeout = timeout;
@@ -425,19 +425,19 @@ public final class Serialize {
         return new AsyncByteChannelReader(channel, options).getMessage();
     }
 
-    public static CompletableFuture<MessageReader> readAsync(AsynchronousSocketChannel channel) {
+    public static CompletableFuture<MessageReader> readAsync(AsyncByteChannel channel) {
         return readAsync(channel, ReaderOptions.DEFAULT_READER_OPTIONS, Long.MAX_VALUE, TimeUnit.SECONDS);
     }
 
-    public static CompletableFuture<MessageReader> readAsync(AsynchronousSocketChannel channel, ReaderOptions options) {
+    public static CompletableFuture<MessageReader> readAsync(AsyncByteChannel channel, ReaderOptions options) {
         return readAsync(channel, options, Long.MAX_VALUE, TimeUnit.SECONDS);
     }
 
-    public static CompletableFuture<MessageReader> readAsync(AsynchronousSocketChannel channel, long timeout, TimeUnit timeUnit) {
+    public static CompletableFuture<MessageReader> readAsync(AsyncByteChannel channel, long timeout, TimeUnit timeUnit) {
         return readAsync(channel, ReaderOptions.DEFAULT_READER_OPTIONS, timeout, timeUnit);
     }
 
-    public static CompletableFuture<MessageReader> readAsync(AsynchronousSocketChannel channel, ReaderOptions options, long timeout, TimeUnit timeUnit) {
+    public static CompletableFuture<MessageReader> readAsync(AsyncByteChannel channel, ReaderOptions options, long timeout, TimeUnit timeUnit) {
         return new AsyncSocketReader(channel, options, timeout, timeUnit).getMessage();
     }
 
@@ -478,11 +478,11 @@ public final class Serialize {
         return writeCompleted;
     }
 
-    public static CompletableFuture<java.lang.Void> writeAsync(AsynchronousSocketChannel outputChannel, MessageBuilder message) {
+    public static CompletableFuture<java.lang.Void> writeAsync(AsyncByteChannel outputChannel, MessageBuilder message) {
         return writeAsync(outputChannel, message, Long.MAX_VALUE, TimeUnit.SECONDS);
     }
 
-    public static CompletableFuture<java.lang.Void> writeAsync(AsynchronousSocketChannel outputChannel, MessageBuilder message, long timeout, TimeUnit timeUnit) {
+    public static CompletableFuture<java.lang.Void> writeAsync(AsyncByteChannel outputChannel, MessageBuilder message, long timeout, TimeUnit timeUnit) {
         var writeCompleted = new CompletableFuture<java.lang.Void>();
         var segments = message.getSegmentsForOutput();
         var header = getHeaderForOutput(segments);

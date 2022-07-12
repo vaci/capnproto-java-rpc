@@ -53,7 +53,7 @@ public class TwoPartyTest {
 
     PipeThread runServer(Capability.Client bootstrapInterface) throws Exception {
         return newPipeThread(channel -> {
-            var network = new TwoPartyVatNetwork(channel, RpcTwoPartyProtocol.Side.SERVER);
+            var network = new TwoPartyVatNetwork(new AsyncSocketByteAdapter(channel), RpcTwoPartyProtocol.Side.SERVER);
             var system = new RpcSystem<>(network, bootstrapInterface);
             system.start();
             network.onDisconnect().join();
@@ -73,7 +73,7 @@ public class TwoPartyTest {
     @org.junit.Test
     public void testNullCap() throws Exception {
         var pipe = runServer(new Capability.Client());
-        var rpcClient = new TwoPartyClient(pipe.channel);
+        var rpcClient = new TwoPartyClient(new AsyncSocketByteAdapter(pipe.channel));
         var client = rpcClient.bootstrap();
         var resolved = client.whenResolved();
         rpcClient.runUntil(resolved).join();
@@ -83,7 +83,7 @@ public class TwoPartyTest {
     public void testBasic() throws Exception {
         var callCount = new Counter();
         var pipe = runServer(new RpcTestUtil.TestInterfaceImpl(callCount));
-        var rpcClient = new TwoPartyClient(pipe.channel);
+        var rpcClient = new TwoPartyClient(new AsyncSocketByteAdapter(pipe.channel));
         var client = new Test.TestInterface.Client(rpcClient.bootstrap());
         var request1 = client.fooRequest();
         request1.getParams().setI(123);
@@ -122,7 +122,7 @@ public class TwoPartyTest {
         var callCount = new Counter();
         var chainedCallCount = new Counter();
         var pipe = runServer(new RpcTestUtil.TestPipelineImpl(callCount));
-        var rpcClient = new TwoPartyClient(pipe.channel);
+        var rpcClient = new TwoPartyClient(new AsyncSocketByteAdapter(pipe.channel));
         var client = new Test.TestPipeline.Client(rpcClient.bootstrap());
 
         {
