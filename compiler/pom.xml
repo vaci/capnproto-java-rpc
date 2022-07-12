@@ -33,6 +33,7 @@
       <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
       <maven.compiler.source>14</maven.compiler.source>
       <maven.compiler.target>14</maven.compiler.target>
+      <make>make</make>
     </properties>
     <dependencies>
         <dependency>
@@ -47,7 +48,19 @@
           <version>0.1.14-SNAPSHOT</version>
         </dependency>
     </dependencies>
-
+    <profiles>
+        <profile>
+            <id>platform-openbsd</id>
+            <activation>
+                <os>
+                    <name>OpenBSD</name>
+                </os>
+            </activation>
+            <properties>
+                <make>gmake</make>
+            </properties>
+        </profile>
+    </profiles>
     <build>
       <plugins>
         <plugin>
@@ -62,16 +75,16 @@
         </plugin>
 
         <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-antrun-plugin</artifactId>
-          <version>3.0.0</version>
+          <version>3.1.0</version>
           <executions>
-
             <execution>
               <id>compile</id>
               <phase>compile</phase>
               <configuration>
                 <target>
-                  <exec executable="make" failonerror="true">
+                  <exec executable="${make}" failonerror="true">
                     <arg value="--directory=.."/>
                   </exec>
                 </target>
