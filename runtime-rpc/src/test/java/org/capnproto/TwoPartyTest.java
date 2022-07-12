@@ -6,6 +6,7 @@ import org.junit.Assert;
 import org.junit.Before;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.channels.AsynchronousByteChannel;
 import java.nio.channels.AsynchronousChannelGroup;
 import java.nio.channels.AsynchronousServerSocketChannel;
@@ -28,7 +29,7 @@ public class TwoPartyTest {
     PipeThread newPipeThread(Consumer<AsynchronousSocketChannel> startFunc) throws Exception {
         var pipeThread = new PipeThread();
         var serverAcceptSocket = AsynchronousServerSocketChannel.open(this.group);
-        serverAcceptSocket.bind(null);
+        serverAcceptSocket.bind(new InetSocketAddress("127.0.0.1", 0));
         var clientSocket = AsynchronousSocketChannel.open();
 
         pipeThread.thread = new Thread(() -> {

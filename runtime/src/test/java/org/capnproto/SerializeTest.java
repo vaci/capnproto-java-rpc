@@ -22,6 +22,7 @@
 package org.capnproto;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousServerSocketChannel;
 import java.nio.channels.AsynchronousSocketChannel;
@@ -81,7 +82,7 @@ public class SerializeTest {
   private void expectSerializesToAsyncSocket(int exampleSegmentCount, byte[] exampleBytes) throws IOException {
     var done =  new CompletableFuture<java.lang.Void>();
     var server = AsynchronousServerSocketChannel.open();
-    server.bind(null);
+    server.bind(new InetSocketAddress("127.0.0.1", 0));
     server.accept(null, new CompletionHandler<AsynchronousSocketChannel, Object>() {
       @Override
       public void completed(AsynchronousSocketChannel socket, Object attachment) {
