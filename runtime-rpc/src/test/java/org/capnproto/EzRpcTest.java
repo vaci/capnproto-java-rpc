@@ -16,7 +16,7 @@ public class EzRpcTest {
 
         var clientSocket = AsynchronousSocketChannel.open();
         clientSocket.connect(new InetSocketAddress("localhost", server.getPort())).get();
-        var client = new EzRpcClient(new AsyncSocketByteAdapter(clientSocket));
+        var client = new EzRpcClient(clientSocket);
         var cap = new Test.TestInterface.Client(client.getMain());
         var request = cap.fooRequest();
         request.getParams().setI(123);

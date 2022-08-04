@@ -340,15 +340,11 @@ public final class Serialize {
     }
 
     static class AsyncSocketReader extends AsyncMessageReader {
-        private final AsyncByteChannel channel;
-        private final long timeout;
-        private final TimeUnit timeUnit;
+        private final AsynchronousByteChannel channel;
 
-        AsyncSocketReader(AsyncByteChannel channel, ReaderOptions options, long timeout, TimeUnit timeUnit) {
+        AsyncSocketReader(AsynchronousByteChannel channel, ReaderOptions options) {
             super(options);
             this.channel = channel;
-            this.timeout = timeout;
-            this.timeUnit = timeUnit;
         }
 
         void read(int bytes, Consumer<? super ByteBuffer> consumer) {
@@ -364,7 +360,7 @@ public final class Serialize {
                         readCompleted.completeExceptionally(new IOException(text));
                     } else if (buffer.hasRemaining()) {
                         // partial read
-                        channel.read(buffer, timeout, timeUnit, null, this);
+                        channel.read(buffer, null, this);
                     } else {
                         consumer.accept(buffer);
                     }
@@ -376,14 +372,14 @@ public final class Serialize {
                 }
             };
 
-            this.channel.read(buffer, this.timeout, this.timeUnit, null, handler);
+            this.channel.read(buffer, null, handler);
         }
     }
 
-    static class AsyncByteChannelReader extends AsyncMessageReader {
+    static class AsynchronousByteChannelReader extends AsyncMessageReader {
         private final AsynchronousByteChannel channel;
 
-        AsyncByteChannelReader(AsynchronousByteChannel channel, ReaderOptions options) {
+        AsynchronousByteChannelReader(AsynchronousByteChannel channel, ReaderOptions options) {
             super(options);
             this.channel = channel;
         }
@@ -422,23 +418,7 @@ public final class Serialize {
     }
 
     public static CompletableFuture<MessageReader> readAsync(AsynchronousByteChannel channel, ReaderOptions options) {
-        return new AsyncByteChannelReader(channel, options).getMessage();
-    }
-
-    public static CompletableFuture<MessageReader> readAsync(AsyncByteChannel channel) {
-        return readAsync(channel, ReaderOptions.DEFAULT_READER_OPTIONS, Long.MAX_VALUE, TimeUnit.SECONDS);
-    }
-
-    public static CompletableFuture<MessageReader> readAsync(AsyncByteChannel channel, ReaderOptions options) {
-        return readAsync(channel, options, Long.MAX_VALUE, TimeUnit.SECONDS);
-    }
-
-    public static CompletableFuture<MessageReader> readAsync(AsyncByteChannel channel, long timeout, TimeUnit timeUnit) {
-        return readAsync(channel, ReaderOptions.DEFAULT_READER_OPTIONS, timeout, timeUnit);
-    }
-
-    public static CompletableFuture<MessageReader> readAsync(AsyncByteChannel channel, ReaderOptions options, long timeout, TimeUnit timeUnit) {
-        return new AsyncSocketReader(channel, options, timeout, timeUnit).getMessage();
+        return new AsynchronousByteChannelReader(channel, options).getMessage();
     }
 
     public static CompletableFuture<java.lang.Void> writeAsync(AsynchronousByteChannel outputChannel, MessageBuilder message) {
@@ -471,50 +451,6 @@ public final class Serialize {
 
             @Override
             public void failed(Throwable exc, Integer attachment) {
-                writeCompleted.completeExceptionally(exc);
-            }
-        });
-
-        return writeCompleted;
-    }
-
-    public static CompletableFuture<java.lang.Void> writeAsync(AsyncByteChannel outputChannel, MessageBuilder message) {
-        return writeAsync(outputChannel, message, Long.MAX_VALUE, TimeUnit.SECONDS);
-    }
-
-    public static CompletableFuture<java.lang.Void> writeAsync(AsyncByteChannel outputChannel, MessageBuilder message, long timeout, TimeUnit timeUnit) {
-        var writeCompleted = new CompletableFuture<java.lang.Void>();
-        var segments = message.getSegmentsForOutput();
-        var header = getHeaderForOutput(segments);
-        long totalBytes = header.remaining();
-
-        // TODO avoid this copy?
-        var allSegments = new ByteBuffer[segments.length+1];
-        allSegments[0] = header;
-        for (int ii = 0; ii < segments.length; ++ii) {
-            var segment = segments[ii];
-            allSegments[ii+1] = segment;
-            totalBytes += segment.remaining();
-        }
-
-        outputChannel.write(allSegments, 0, allSegments.length, timeout, timeUnit, totalBytes, new CompletionHandler<>() {
-            @Override
-            public void completed(Long result, Long totalBytes) {
-                //System.out.println(outputChannel.toString() + ": Wrote " + result + "/" + totalBytes + " bytes");
-                if (result < 0) {
-                    writeCompleted.completeExceptionally(new IOException("Write failed"));
-                }
-                else if (result < totalBytes) {
-                    // partial write
-                    outputChannel.write(allSegments, 0, allSegments.length, timeout, timeUnit, totalBytes - result, this);
-                }
-                else {
-                    writeCompleted.complete(null);
-                }
-            }
-
-            @Override
-            public void failed(Throwable exc, Long attachment) {
                 writeCompleted.completeExceptionally(exc);
             }
         });
