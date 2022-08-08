@@ -14,8 +14,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-          token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Install Cap'n Proto
         run: |
             export DEBIAN_FRONTEND=noninteractive
