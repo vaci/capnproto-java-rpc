@@ -13,7 +13,7 @@ Promise pipelining is provided via java.util.concurrent.CompletableFuture. Unlik
 only when they are waited upon, a CompletableFuture can complete immediately. This may break E-ordering, as the C++ implementation
 relies on kj::evalLater() to defer method calls and this implementation may have subtle differences.
 
-Most of the C++ RPC test cases have been ported to this implementation, which gives me some comfort that the implementation logic is 
+Most of the C++ RPC test cases have been ported, which gives me some comfort that the implementation logic is 
 correct, but more extensive testing is required. 
 
 This implementation does not support generic interfaces. Extending the schema compiler to output code for generic interfaces is an
