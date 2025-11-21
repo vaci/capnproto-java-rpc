@@ -1,4 +1,4 @@
-# capnproto-java: Cap'n Proto for Java
+# capnproto-java: Cap'n Proto for Java (RPC Bonus Edition)
 
 [![Build Status](https://github.com/vaci/capnproto-java-rpc/workflows/CI/badge.svg?branch=master&event=push)](https://github.com/vaci/capnproto-java-rpc/actions?query=workflow%3ACI)
 
